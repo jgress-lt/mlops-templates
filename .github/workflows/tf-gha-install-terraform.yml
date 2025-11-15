@@ -163,13 +163,17 @@ jobs:
         ARM_USE_OIDC: true
     - name: Terraform Plan
       run: |
+        # Get the service principal object ID dynamically
+        SP_OBJECT_ID=$(az ad sp show --id ${{ secrets.AZURE_CLIENT_ID }} --query id -o tsv)
+        
         terraform -chdir=${{ inputs.terraform_workingdir }} plan -out=plan.tfplan -input=false \
         -var "location=${{ inputs.terraform_plan_location }}" \
         -var "prefix=${{ inputs.namespace }}" \
         -var "postfix=${{ inputs.postfix }}" \
         -var "environment=${{ inputs.environment }}" \
         -var "enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-        -var "enable_monitoring=${{ inputs.enable_monitoring }}"
+        -var "enable_monitoring=${{ inputs.enable_monitoring }}" \
+        -var "github_actions_service_principal_id=$SP_OBJECT_ID"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
