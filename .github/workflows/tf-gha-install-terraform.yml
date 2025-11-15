@@ -148,12 +148,18 @@ jobs:
         -backend-config='container_name=${{ inputs.terraform_st_container_name }}' \
         -backend-config='key=${{ inputs.terraform_st_key }}' \
         -backend-config='resource_group_name=${{ inputs.terraform_st_resource_group }}' \
-        -backend-config='use_oidc=true'
+        -backend-config='use_oidc=true' \
+        -backend-config='tenant_id=${{ secrets.AZURE_TENANT_ID }}' \
+        -backend-config='subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}' \
+        -backend-config='client_id=${{ secrets.AZURE_CLIENT_ID }}'
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         ARM_USE_OIDC: true
+        ARM_OIDC_TOKEN: ${{ env.ARM_OIDC_TOKEN }}
+        ARM_OIDC_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+        ARM_OIDC_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
     - name: Terraform Validate
       run: terraform -chdir=${{ inputs.terraform_workingdir }} validate
       env:
