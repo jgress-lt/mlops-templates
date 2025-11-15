@@ -187,6 +187,48 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         ARM_USE_OIDC: true
+    - name: Configure Workspace Auth
+      if: ${{ inputs.TFAction == 'apply'}}
+      run: |
+        WORKSPACE_NAME="mlw-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        RG_NAME="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        
+        echo "Configuring workspace $WORKSPACE_NAME to use identity-based authentication..."
+        az resource update \
+          --ids /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$RG_NAME/providers/Microsoft.MachineLearningServices/workspaces/$WORKSPACE_NAME \
+          --set properties.systemDatastoresAuthMode=identity
+        
+        echo "Workspace authentication configured successfully!"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
+    - name: Grant Service Principal Storage Access
+      if: ${{ inputs.TFAction == 'apply'}}
+      run: |
+        STORAGE_NAME="st${{ inputs.namespace }}${{ inputs.postfix }}${{ inputs.environment }}"
+        RG_NAME="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        
+        # Get service principal object ID
+        SP_OBJECT_ID=$(az ad sp show --id ${{ secrets.AZURE_CLIENT_ID }} --query id -o tsv)
+        
+        # Get storage account scope
+        STORAGE_SCOPE="/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$RG_NAME/providers/Microsoft.Storage/storageAccounts/$STORAGE_NAME"
+        
+        echo "Granting Storage Blob Data Contributor role to service principal on $STORAGE_NAME..."
+        az role assignment create \
+          --assignee $SP_OBJECT_ID \
+          --role "Storage Blob Data Contributor" \
+          --scope $STORAGE_SCOPE \
+          --only-show-errors || echo "Role assignment may already exist"
+        
+        echo "Storage permissions configured successfully!"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
     - name: Terraform Destroy
       if: ${{ inputs.TFAction == 'destroy' }} 
       run: terraform -chdir=${{ inputs.terraform_workingdir }} destroy -input=false -auto-approve
