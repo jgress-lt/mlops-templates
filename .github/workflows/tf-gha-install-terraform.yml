@@ -118,7 +118,7 @@ jobs:
         #
         inlineScript: |
           az account set -s ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          az storage container create --account-name ${{ inputs.terraform_st_storage_account }} --name ${{ inputs.terraform_st_container_name }}    
+          az storage container create --account-name ${{ inputs.terraform_st_storage_account }} --name ${{ inputs.terraform_st_container_name }} --auth-mode login    
   install-terraform:
     name: 'Install Terraform'
     runs-on: ubuntu-latest
