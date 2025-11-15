@@ -122,18 +122,15 @@ jobs:
     - name: grant-sp-tfstate-storage-access
       uses: azure/CLI@v1
       with:
-        azcliversion: 2.30.0
+        azcliversion: latest
         inlineScript: |
           az account set -s ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           
-          # Get service principal object ID
-          SP_OBJECT_ID=$(az ad sp show --id ${{ secrets.AZURE_CLIENT_ID }} --query id -o tsv)
-          
-          # Grant Storage Blob Data Contributor role
+          # Grant Storage Blob Data Contributor role directly using client ID
           STORAGE_SCOPE="/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ inputs.terraform_st_resource_group }}/providers/Microsoft.Storage/storageAccounts/${{ inputs.terraform_st_storage_account }}"
           
           az role assignment create \
-            --assignee $SP_OBJECT_ID \
+            --assignee ${{ secrets.AZURE_CLIENT_ID }} \
             --role "Storage Blob Data Contributor" \
             --scope $STORAGE_SCOPE \
             --only-show-errors || echo "Role assignment may already exist"
