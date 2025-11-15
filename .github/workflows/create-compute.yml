@@ -51,33 +51,49 @@ jobs:
       - name: create-compute-default-tier
         if: ${{ inputs.cluster_tier == ''}}
         run: |
-          # Get the workspace's user-assigned identity
-          UAI_ID=$(az ml workspace show --name ${{ inputs.workspace_name }} --resource-group ${{ inputs.resource_group }} --query identity.user_assigned_identities -o json | jq -r 'keys[0]')
+          # Check if compute already exists
+          compute_name=$(az ml compute show --name ${{ inputs.cluster_name }} --resource-group ${{ inputs.resource_group }} --workspace-name ${{ inputs.workspace_name }} --query name -o tsv 2>/dev/null || echo "")
           
-          az ml compute create --name ${{ inputs.cluster_name }} \
-                                  --type AmlCompute \
-                                  --tier "dedicated" \
-                                  --size ${{ inputs.size }} \
-                                  --min-instances ${{ inputs.min_instances }} \
-                                  --max-instances ${{ inputs.max_instances }} \
-                                  --identity-type UserAssigned \
-                                  --user-assigned-identities $UAI_ID \
-                                  --resource-group ${{ inputs.resource_group }} \
-                                  --workspace-name ${{ inputs.workspace_name }}
+          if [[ -z "$compute_name" ]]; then
+            echo "Compute does not exist. Creating the cluster..."
+            # Get the workspace's user-assigned identity
+            UAI_ID=$(az ml workspace show --name ${{ inputs.workspace_name }} --resource-group ${{ inputs.resource_group }} --query identity.user_assigned_identities -o json | jq -r 'keys[0]')
+            
+            az ml compute create --name ${{ inputs.cluster_name }} \
+                                    --type AmlCompute \
+                                    --tier "dedicated" \
+                                    --size ${{ inputs.size }} \
+                                    --min-instances ${{ inputs.min_instances }} \
+                                    --max-instances ${{ inputs.max_instances }} \
+                                    --identity-type UserAssigned \
+                                    --user-assigned-identities $UAI_ID \
+                                    --resource-group ${{ inputs.resource_group }} \
+                                    --workspace-name ${{ inputs.workspace_name }}
+          else
+            echo "Compute cluster '${{ inputs.cluster_name }}' already exists. Skipping creation."
+          fi
       - name: create-compute-using-tier
         if: ${{ inputs.cluster_tier != ''}}
         run: |
-          # Get the workspace's user-assigned identity
-          UAI_ID=$(az ml workspace show --name ${{ inputs.workspace_name }} --resource-group ${{ inputs.resource_group }} --query identity.user_assigned_identities -o json | jq -r 'keys[0]')
+          # Check if compute already exists
+          compute_name=$(az ml compute show --name ${{ inputs.cluster_name }} --resource-group ${{ inputs.resource_group }} --workspace-name ${{ inputs.workspace_name }} --query name -o tsv 2>/dev/null || echo "")
           
-          az ml compute create --name ${{ inputs.cluster_name }} \
-                                  --type AmlCompute \
-                                  --tier ${{ inputs.cluster_tier }} \
-                                  --size ${{ inputs.size }} \
-                                  --min-instances ${{ inputs.min_instances }} \
-                                  --max-instances ${{ inputs.max_instances }} \
-                                  --identity-type UserAssigned \
-                                  --user-assigned-identities $UAI_ID \
-                                  --resource-group ${{ inputs.resource_group }} \
-                                  --workspace-name ${{ inputs.workspace_name }}
+          if [[ -z "$compute_name" ]]; then
+            echo "Compute does not exist. Creating the cluster..."
+            # Get the workspace's user-assigned identity
+            UAI_ID=$(az ml workspace show --name ${{ inputs.workspace_name }} --resource-group ${{ inputs.resource_group }} --query identity.user_assigned_identities -o json | jq -r 'keys[0]')
+            
+            az ml compute create --name ${{ inputs.cluster_name }} \
+                                    --type AmlCompute \
+                                    --tier ${{ inputs.cluster_tier }} \
+                                    --size ${{ inputs.size }} \
+                                    --min-instances ${{ inputs.min_instances }} \
+                                    --max-instances ${{ inputs.max_instances }} \
+                                    --identity-type UserAssigned \
+                                    --user-assigned-identities $UAI_ID \
+                                    --resource-group ${{ inputs.resource_group }} \
+                                    --workspace-name ${{ inputs.workspace_name }}
+          else
+            echo "Compute cluster '${{ inputs.cluster_name }}' already exists. Skipping creation."
+          fi
 
