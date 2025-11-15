@@ -143,26 +143,17 @@ jobs:
       uses: hashicorp/setup-terraform@v2 
     - name: Terraform Init
       run: |
-        # Request OIDC token for Azure
-        OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
-        
         terraform -chdir=${{ inputs.terraform_workingdir }} init \
         -backend-config='storage_account_name=${{ inputs.terraform_st_storage_account }}' \
         -backend-config='container_name=${{ inputs.terraform_st_container_name }}' \
         -backend-config='key=${{ inputs.terraform_st_key }}' \
         -backend-config='resource_group_name=${{ inputs.terraform_st_resource_group }}' \
-        -backend-config='use_oidc=true' \
-        -backend-config='tenant_id=${{ secrets.AZURE_TENANT_ID }}' \
-        -backend-config='subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}' \
-        -backend-config='client_id=${{ secrets.AZURE_CLIENT_ID }}' \
-        -backend-config="oidc_token=$OIDC_TOKEN"
+        -backend-config='use_azuread_auth=true'
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         ARM_USE_OIDC: true
-        ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-        ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
     - name: Terraform Validate
       run: terraform -chdir=${{ inputs.terraform_workingdir }} validate
       env:
