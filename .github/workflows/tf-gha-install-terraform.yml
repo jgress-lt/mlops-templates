@@ -262,4 +262,22 @@ jobs:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
+    - name: Delete Terraform State Storage
+      if: ${{ inputs.TFAction == 'destroy' }}
+      run: |
+        TF_STATE_RG="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}-tf"
+        
+        echo "Checking if Terraform state resource group exists: $TF_STATE_RG"
+        if az group exists --name $TF_STATE_RG | grep -q "true"; then
+          echo "Deleting Terraform state resource group: $TF_STATE_RG"
+          az group delete --name $TF_STATE_RG --yes --no-wait
+          echo "Terraform state resource group deletion initiated"
+        else
+          echo "Terraform state resource group does not exist, skipping deletion"
+        fi
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         ARM_USE_OIDC: true     
