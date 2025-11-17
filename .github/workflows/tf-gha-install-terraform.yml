@@ -251,7 +251,13 @@ jobs:
         ARM_USE_OIDC: true
     - name: Terraform Destroy
       if: ${{ inputs.TFAction == 'destroy' }} 
-      run: terraform -chdir=${{ inputs.terraform_workingdir }} destroy -input=false -auto-approve
+      run: |
+        terraform -chdir=${{ inputs.terraform_workingdir }} destroy -input=false -auto-approve \
+          -var="location=${{ inputs.location }}" \
+          -var="prefix=${{ inputs.namespace }}" \
+          -var="environment=${{ inputs.environment }}" \
+          -var="postfix=${{ inputs.postfix }}" \
+          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
