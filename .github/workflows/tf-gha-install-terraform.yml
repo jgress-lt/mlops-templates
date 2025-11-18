@@ -283,8 +283,9 @@ jobs:
             echo "No batch endpoints found"
           fi
           
-          echo "Waiting 60 seconds for endpoint deletions to process..."
-          sleep 60
+          echo "Waiting 120 seconds for endpoint deletions to process..."
+          echo "Note: Online endpoints can take 2-3 minutes to fully delete"
+          sleep 120
         else
           echo "Workspace does not exist, skipping endpoint deletion"
         fi
