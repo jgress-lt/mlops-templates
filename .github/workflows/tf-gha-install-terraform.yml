@@ -249,6 +249,50 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         ARM_USE_OIDC: true
+    - name: Delete Azure ML Endpoints
+      if: ${{ inputs.TFAction == 'destroy' }}
+      run: |
+        WORKSPACE_NAME="mlw-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        RESOURCE_GROUP="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        
+        echo "Checking if Azure ML workspace exists: $WORKSPACE_NAME"
+        if az ml workspace show --name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP &>/dev/null; then
+          echo "Workspace found. Deleting endpoints..."
+          
+          # Delete online endpoints
+          echo "Checking for online endpoints..."
+          ONLINE_ENDPOINTS=$(az ml online-endpoint list --workspace-name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP --query "[].name" -o tsv 2>/dev/null || echo "")
+          if [ ! -z "$ONLINE_ENDPOINTS" ]; then
+            for endpoint in $ONLINE_ENDPOINTS; do
+              echo "Deleting online endpoint: $endpoint"
+              az ml online-endpoint delete --name $endpoint --workspace-name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP --yes --no-wait || echo "Failed to delete $endpoint, continuing..."
+            done
+          else
+            echo "No online endpoints found"
+          fi
+          
+          # Delete batch endpoints
+          echo "Checking for batch endpoints..."
+          BATCH_ENDPOINTS=$(az ml batch-endpoint list --workspace-name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP --query "[].name" -o tsv 2>/dev/null || echo "")
+          if [ ! -z "$BATCH_ENDPOINTS" ]; then
+            for endpoint in $BATCH_ENDPOINTS; do
+              echo "Deleting batch endpoint: $endpoint"
+              az ml batch-endpoint delete --name $endpoint --workspace-name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP --yes --no-wait || echo "Failed to delete $endpoint, continuing..."
+            done
+          else
+            echo "No batch endpoints found"
+          fi
+          
+          echo "Waiting 60 seconds for endpoint deletions to process..."
+          sleep 60
+        else
+          echo "Workspace does not exist, skipping endpoint deletion"
+        fi
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
     - name: Terraform Destroy
       if: ${{ inputs.TFAction == 'destroy' }} 
       run: |
