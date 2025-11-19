@@ -110,7 +110,7 @@ jobs:
         #
         inlineScript: |
           az account set -s ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          az storage account create -n ${{ inputs.terraform_st_storage_account }} -g ${{ inputs.terraform_st_resource_group }} -l ${{ inputs.terraform_st_location }} --sku Standard_LRS
+          az storage account create -n ${{ inputs.terraform_st_storage_account }} -g ${{ inputs.terraform_st_resource_group }} -l ${{ inputs.terraform_st_location }} --sku Standard_LRS --public-network-access Enabled --allow-blob-public-access false
     - name: create-tfstate-storage-container
       uses: azure/CLI@v1
       with:
