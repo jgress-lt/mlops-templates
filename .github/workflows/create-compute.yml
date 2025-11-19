@@ -24,6 +24,12 @@ on:
       cluster_tier: 
         required: false
         type: string
+      vnet_name:
+        required: false
+        type: string
+      subnet_name:
+        required: false
+        type: string
     secrets:
       AZURE_CLIENT_ID:
         required: true
@@ -59,16 +65,26 @@ jobs:
             # Get the workspace's user-assigned identity
             UAI_ID=$(az ml workspace show --name ${{ inputs.workspace_name }} --resource-group ${{ inputs.resource_group }} --query identity.user_assigned_identities -o json | jq -r 'keys[0]')
             
-            az ml compute create --name ${{ inputs.cluster_name }} \
+            # Build compute create command with conditional VNet parameters
+            COMPUTE_CMD="az ml compute create --name ${{ inputs.cluster_name }} \
                                     --type AmlCompute \
-                                    --tier "dedicated" \
+                                    --tier dedicated \
                                     --size ${{ inputs.size }} \
                                     --min-instances ${{ inputs.min_instances }} \
                                     --max-instances ${{ inputs.max_instances }} \
                                     --identity-type UserAssigned \
                                     --user-assigned-identities $UAI_ID \
                                     --resource-group ${{ inputs.resource_group }} \
-                                    --workspace-name ${{ inputs.workspace_name }}
+                                    --workspace-name ${{ inputs.workspace_name }}"
+            
+            # Add VNet parameters if provided
+            if [[ -n "${{ inputs.vnet_name }}" && -n "${{ inputs.subnet_name }}" ]]; then
+              COMPUTE_CMD="$COMPUTE_CMD --vnet-name ${{ inputs.vnet_name }} --subnet ${{ inputs.subnet_name }}"
+              echo "Creating compute cluster in VNet: ${{ inputs.vnet_name }}, Subnet: ${{ inputs.subnet_name }}"
+            fi
+            
+            # Execute the command
+            eval $COMPUTE_CMD
           else
             echo "Compute cluster '${{ inputs.cluster_name }}' already exists. Skipping creation."
           fi
@@ -83,7 +99,8 @@ jobs:
             # Get the workspace's user-assigned identity
             UAI_ID=$(az ml workspace show --name ${{ inputs.workspace_name }} --resource-group ${{ inputs.resource_group }} --query identity.user_assigned_identities -o json | jq -r 'keys[0]')
             
-            az ml compute create --name ${{ inputs.cluster_name }} \
+            # Build compute create command with conditional VNet parameters
+            COMPUTE_CMD="az ml compute create --name ${{ inputs.cluster_name }} \
                                     --type AmlCompute \
                                     --tier ${{ inputs.cluster_tier }} \
                                     --size ${{ inputs.size }} \
@@ -92,7 +109,16 @@ jobs:
                                     --identity-type UserAssigned \
                                     --user-assigned-identities $UAI_ID \
                                     --resource-group ${{ inputs.resource_group }} \
-                                    --workspace-name ${{ inputs.workspace_name }}
+                                    --workspace-name ${{ inputs.workspace_name }}"
+            
+            # Add VNet parameters if provided
+            if [[ -n "${{ inputs.vnet_name }}" && -n "${{ inputs.subnet_name }}" ]]; then
+              COMPUTE_CMD="$COMPUTE_CMD --vnet-name ${{ inputs.vnet_name }} --subnet ${{ inputs.subnet_name }}"
+              echo "Creating compute cluster in VNet: ${{ inputs.vnet_name }}, Subnet: ${{ inputs.subnet_name }}"
+            fi
+            
+            # Execute the command
+            eval $COMPUTE_CMD
           else
             echo "Compute cluster '${{ inputs.cluster_name }}' already exists. Skipping creation."
           fi
