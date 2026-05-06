@@ -72,124 +72,257 @@ on:
         description: 'vnet of Terraform plan'
         required: true
     secrets:
-      azure_creds:
+      AZURE_CLIENT_ID:
         required: true
-      clientId:
+      AZURE_TENANT_ID:
         required: true
-      clientSecret:
-        required: true
-      tenantId:
-        required: true
-      subscriptionId:
+      AZURE_SUBSCRIPTION_ID:
         required: true        
 jobs:
   create-tfstate-resources:
     name: Create Resources for Terraform State
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     defaults:
       run:
         shell: bash
     steps:
     - name: azure-login
-      uses: azure/login@v1
+      uses: azure/login@v2
       with:
-        creds: ${{ env.AZURE_CREDENTIALS }}
-        # environment: 'TBD' - default to azurecloud
-      env: 
-        AZURE_CREDENTIALS: ${{ secrets.azure_creds }}
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     - name: create-tfstate-resource-group
       uses: azure/CLI@v1
       with:
         azcliversion: 2.30.0
         #
         inlineScript: |
-          az account set -s ${{ env.ARM_SUBSCRIPTION_ID  }}
+          az account set -s ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           az group create --location ${{ inputs.terraform_st_location }} --name ${{ inputs.terraform_st_resource_group }}  
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}
     - name: create-tfstate-storage-account
       uses: azure/CLI@v1
       with:
         azcliversion: 2.30.0
         #
         inlineScript: |
-          az account set -s ${{ env.ARM_SUBSCRIPTION_ID  }}
-          az storage account create -n ${{ inputs.terraform_st_storage_account }} -g ${{ inputs.terraform_st_resource_group }} -l ${{ inputs.terraform_st_location }} --sku Standard_LRS
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}    
+          az account set -s ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          az storage account create -n ${{ inputs.terraform_st_storage_account }} -g ${{ inputs.terraform_st_resource_group }} -l ${{ inputs.terraform_st_location }} --sku Standard_LRS --public-network-access Enabled --allow-blob-public-access false
     - name: create-tfstate-storage-container
       uses: azure/CLI@v1
       with:
-        azcliversion: 2.30.0
+        azcliversion: latest
         #
         inlineScript: |
-          az account set -s ${{ env.ARM_SUBSCRIPTION_ID  }}
-          az storage container create --account-name ${{ inputs.terraform_st_storage_account }} --name ${{ inputs.terraform_st_container_name }}
-      env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}    
+          az account set -s ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          az storage container create --account-name ${{ inputs.terraform_st_storage_account }} --name ${{ inputs.terraform_st_container_name }} --auth-mode login    
+    - name: grant-sp-tfstate-storage-access
+      uses: azure/CLI@v1
+      with:
+        azcliversion: latest
+        inlineScript: |
+          az account set -s ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          
+          # Grant Storage Blob Data Contributor role directly using client ID
+          STORAGE_SCOPE="/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ inputs.terraform_st_resource_group }}/providers/Microsoft.Storage/storageAccounts/${{ inputs.terraform_st_storage_account }}"
+          
+          az role assignment create \
+            --assignee ${{ secrets.AZURE_CLIENT_ID }} \
+            --role "Storage Blob Data Contributor" \
+            --scope $STORAGE_SCOPE \
+            || echo "Role assignment may already exist"
+          
+          echo "Waiting 60 seconds for RBAC propagation..."
+          sleep 60
+          
+          echo "Granted Storage Blob Data Contributor to service principal on ${{ inputs.terraform_st_storage_account }}"
   install-terraform:
     name: 'Install Terraform'
     runs-on: ubuntu-latest
     needs: create-tfstate-resources
-    environment: ${{ inputs.dply_environment }}
+    # environment: ${{ inputs.dply_environment }}  # Commented out - not required with OIDC
+    permissions:
+      id-token: write
+      contents: read
     defaults:
       run:
         shell: bash
     steps:
     - name: checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
+    - name: azure-login
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2 
     - name: Terraform Init
-      run: echo ${{ env.ARM_SUBSCRIPTION_ID }}; 
-        echo "all env:${{ env.ARM_CLIENT_ID }}::${{ env.ARM_SUBSCRIPTION_ID }}";
-        terraform -chdir=${{ inputs.terraform_workingdir }} init 
-        -backend-config='storage_account_name=${{ inputs.terraform_st_storage_account }}'
-        -backend-config='container_name=${{ inputs.terraform_st_container_name }}'
-        -backend-config='key=${{ inputs.terraform_st_key }}'         
-        -backend-config='resource_group_name=${{ inputs.terraform_st_resource_group }}';      
+      run: |
+        terraform -chdir=${{ inputs.terraform_workingdir }} init \
+        -backend-config='storage_account_name=${{ inputs.terraform_st_storage_account }}' \
+        -backend-config='container_name=${{ inputs.terraform_st_container_name }}' \
+        -backend-config='key=${{ inputs.terraform_st_key }}' \
+        -backend-config='resource_group_name=${{ inputs.terraform_st_resource_group }}' \
+        -backend-config='use_azuread_auth=true'
       env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}     
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
     - name: Terraform Validate
       run: terraform -chdir=${{ inputs.terraform_workingdir }} validate
       env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}     
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
     - name: Terraform Plan
-      run: terraform -chdir=${{ inputs.terraform_workingdir }} plan -out=plan.tfplan -input=false -var "location=${{ inputs.terraform_plan_location }}" -var "prefix=${{ inputs.namespace }}" -var "postfix=${{ inputs.postfix }}" -var "environment=${{ inputs.environment }}" 
-        -var "enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" -var "enable_monitoring=${{ inputs.enable_monitoring }}" -var "client_secret=${{ env.ARM_CLIENT_SECRET }}"
+      run: |
+        # Get the service principal object ID dynamically
+        SP_OBJECT_ID=$(az ad sp show --id ${{ secrets.AZURE_CLIENT_ID }} --query id -o tsv)
+        
+        terraform -chdir=${{ inputs.terraform_workingdir }} plan -out=plan.tfplan -input=false \
+        -var "location=${{ inputs.terraform_plan_location }}" \
+        -var "prefix=${{ inputs.namespace }}" \
+        -var "postfix=${{ inputs.postfix }}" \
+        -var "environment=${{ inputs.environment }}" \
+        -var "enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
+        -var "enable_monitoring=${{ inputs.enable_monitoring }}" \
+        -var "github_actions_service_principal_id=$SP_OBJECT_ID"
       env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}     
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
     - name: Terraform Apply
       if: ${{ inputs.TFAction == 'apply'}}  
       run: terraform -chdir=${{ inputs.terraform_workingdir }} apply -input=false -auto-approve plan.tfplan 
       env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}     
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
+    - name: Configure Workspace Auth
+      if: ${{ inputs.TFAction == 'apply'}}
+      run: |
+        WORKSPACE_NAME="mlw-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        RG_NAME="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        
+        echo "Configuring workspace $WORKSPACE_NAME to use identity-based authentication..."
+        az resource update \
+          --ids /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$RG_NAME/providers/Microsoft.MachineLearningServices/workspaces/$WORKSPACE_NAME \
+          --set properties.systemDatastoresAuthMode=identity
+        
+        echo "Workspace authentication configured successfully!"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
+    - name: Grant Service Principal Storage Access
+      if: ${{ inputs.TFAction == 'apply'}}
+      run: |
+        STORAGE_NAME="st${{ inputs.namespace }}${{ inputs.postfix }}${{ inputs.environment }}"
+        RG_NAME="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        
+        # Get service principal object ID
+        SP_OBJECT_ID=$(az ad sp show --id ${{ secrets.AZURE_CLIENT_ID }} --query id -o tsv)
+        
+        # Get storage account scope
+        STORAGE_SCOPE="/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$RG_NAME/providers/Microsoft.Storage/storageAccounts/$STORAGE_NAME"
+        
+        echo "Granting Storage Blob Data Contributor role to service principal on $STORAGE_NAME..."
+        az role assignment create \
+          --assignee $SP_OBJECT_ID \
+          --role "Storage Blob Data Contributor" \
+          --scope $STORAGE_SCOPE \
+          --only-show-errors || echo "Role assignment may already exist"
+        
+        echo "Storage permissions configured successfully!"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
+    - name: Delete Azure ML Endpoints
+      if: ${{ inputs.TFAction == 'destroy' }}
+      run: |
+        WORKSPACE_NAME="mlw-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        RESOURCE_GROUP="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        
+        echo "Checking if Azure ML workspace exists: $WORKSPACE_NAME"
+        if az ml workspace show --name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP &>/dev/null; then
+          echo "Workspace found. Deleting endpoints..."
+          
+          # Delete online endpoints
+          echo "Checking for online endpoints..."
+          ONLINE_ENDPOINTS=$(az ml online-endpoint list --workspace-name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP --query "[].name" -o tsv 2>/dev/null || echo "")
+          if [ ! -z "$ONLINE_ENDPOINTS" ]; then
+            for endpoint in $ONLINE_ENDPOINTS; do
+              echo "Deleting online endpoint: $endpoint"
+              az ml online-endpoint delete --name $endpoint --workspace-name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP --yes --no-wait || echo "Failed to delete $endpoint, continuing..."
+            done
+          else
+            echo "No online endpoints found"
+          fi
+          
+          # Delete batch endpoints
+          echo "Checking for batch endpoints..."
+          BATCH_ENDPOINTS=$(az ml batch-endpoint list --workspace-name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP --query "[].name" -o tsv 2>/dev/null || echo "")
+          if [ ! -z "$BATCH_ENDPOINTS" ]; then
+            for endpoint in $BATCH_ENDPOINTS; do
+              echo "Deleting batch endpoint: $endpoint"
+              az ml batch-endpoint delete --name $endpoint --workspace-name $WORKSPACE_NAME --resource-group $RESOURCE_GROUP --yes --no-wait || echo "Failed to delete $endpoint, continuing..."
+            done
+          else
+            echo "No batch endpoints found"
+          fi
+          
+          echo "Waiting 120 seconds for endpoint deletions to process..."
+          echo "Note: Online endpoints can take 2-3 minutes to fully delete"
+          sleep 120
+        else
+          echo "Workspace does not exist, skipping endpoint deletion"
+        fi
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
     - name: Terraform Destroy
       if: ${{ inputs.TFAction == 'destroy' }} 
-      run: terraform -chdir=${{ inputs.terraform_workingdir }} destroy -input=false -auto-approve
+      run: |
+        terraform -chdir=${{ inputs.terraform_workingdir }} destroy -input=false -auto-approve \
+          -var="location=${{ inputs.location }}" \
+          -var="prefix=${{ inputs.namespace }}" \
+          -var="environment=${{ inputs.environment }}" \
+          -var="postfix=${{ inputs.postfix }}" \
+          -var="enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}"
       env:
-        ARM_CLIENT_ID: ${{ secrets.clientId }}
-        ARM_CLIENT_SECRET: ${{ secrets.clientSecret }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.subscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.tenantId }}     
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
+    - name: Delete Terraform State Storage
+      if: ${{ inputs.TFAction == 'destroy' }}
+      run: |
+        TF_STATE_RG="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}-tf"
+        
+        echo "Checking if Terraform state resource group exists: $TF_STATE_RG"
+        if az group exists --name $TF_STATE_RG | grep -q "true"; then
+          echo "Deleting Terraform state resource group: $TF_STATE_RG"
+          az group delete --name $TF_STATE_RG --yes --no-wait
+          echo "Terraform state resource group deletion initiated"
+        else
+          echo "Terraform state resource group does not exist, skipping deletion"
+        fi
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true     
