@@ -71,6 +71,11 @@ on:
         type: string
         description: 'vnet of Terraform plan'
         required: true
+      resource_group_name:
+        type: string
+        description: 'name of the Azure resource group to deploy resources'
+        required: false
+        default: ''
     secrets:
       AZURE_CLIENT_ID:
         required: true
@@ -186,14 +191,22 @@ jobs:
         # Get the service principal object ID dynamically
         SP_OBJECT_ID=$(az ad sp show --id ${{ secrets.AZURE_CLIENT_ID }} --query id -o tsv)
         
-        terraform -chdir=${{ inputs.terraform_workingdir }} plan -out=plan.tfplan -input=false \
-        -var "location=${{ inputs.terraform_plan_location }}" \
-        -var "prefix=${{ inputs.namespace }}" \
-        -var "postfix=${{ inputs.postfix }}" \
-        -var "environment=${{ inputs.environment }}" \
-        -var "enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}" \
-        -var "enable_monitoring=${{ inputs.enable_monitoring }}" \
-        -var "github_actions_service_principal_id=$SP_OBJECT_ID"
+        # Build terraform plan command
+        TF_CMD="terraform -chdir=${{ inputs.terraform_workingdir }} plan -out=plan.tfplan -input=false"
+        TF_CMD="$TF_CMD -var \"location=${{ inputs.terraform_plan_location }}\""
+        TF_CMD="$TF_CMD -var \"prefix=${{ inputs.namespace }}\""
+        TF_CMD="$TF_CMD -var \"postfix=${{ inputs.postfix }}\""
+        TF_CMD="$TF_CMD -var \"environment=${{ inputs.environment }}\""
+        TF_CMD="$TF_CMD -var \"enable_aml_computecluster=${{ inputs.enable_aml_computecluster }}\""
+        TF_CMD="$TF_CMD -var \"enable_monitoring=${{ inputs.enable_monitoring }}\""
+        TF_CMD="$TF_CMD -var \"github_actions_service_principal_id=$SP_OBJECT_ID\""
+        
+        # Add resource_group_name if provided
+        if [ -n "${{ inputs.resource_group_name }}" ]; then
+          TF_CMD="$TF_CMD -var \"resource_group_name=${{ inputs.resource_group_name }}\""
+        fi
+        
+        eval $TF_CMD
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -210,10 +223,16 @@ jobs:
     - name: Configure Workspace Auth
       if: ${{ inputs.TFAction == 'apply'}}
       run: |
-        WORKSPACE_NAME="mlw-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
-        RG_NAME="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        # Use explicit resource_group_name if provided, otherwise compute it
+        if [ -n "${{ inputs.resource_group_name }}" ]; then
+          RG_NAME="${{ inputs.resource_group_name }}"
+        else
+          RG_NAME="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        fi
         
-        echo "Configuring workspace $WORKSPACE_NAME to use identity-based authentication..."
+        WORKSPACE_NAME="mlw-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        
+        echo "Configuring workspace $WORKSPACE_NAME in resource group $RG_NAME to use identity-based authentication..."
         az resource update \
           --ids /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$RG_NAME/providers/Microsoft.MachineLearningServices/workspaces/$WORKSPACE_NAME \
           --set properties.systemDatastoresAuthMode=identity
@@ -227,8 +246,14 @@ jobs:
     - name: Grant Service Principal Storage Access
       if: ${{ inputs.TFAction == 'apply'}}
       run: |
+        # Use explicit resource_group_name if provided, otherwise compute it
+        if [ -n "${{ inputs.resource_group_name }}" ]; then
+          RG_NAME="${{ inputs.resource_group_name }}"
+        else
+          RG_NAME="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
+        fi
+        
         STORAGE_NAME="st${{ inputs.namespace }}${{ inputs.postfix }}${{ inputs.environment }}"
-        RG_NAME="rg-${{ inputs.namespace }}-${{ inputs.postfix }}${{ inputs.environment }}"
         
         # Get service principal object ID
         SP_OBJECT_ID=$(az ad sp show --id ${{ secrets.AZURE_CLIENT_ID }} --query id -o tsv)
@@ -236,7 +261,7 @@ jobs:
         # Get storage account scope
         STORAGE_SCOPE="/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$RG_NAME/providers/Microsoft.Storage/storageAccounts/$STORAGE_NAME"
         
-        echo "Granting Storage Blob Data Contributor role to service principal on $STORAGE_NAME..."
+        echo "Granting Storage Blob Data Contributor role to service principal on $STORAGE_NAME in resource group $RG_NAME..."
         az role assignment create \
           --assignee $SP_OBJECT_ID \
           --role "Storage Blob Data Contributor" \
