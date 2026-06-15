@@ -49,6 +49,13 @@ jobs:
         run: az extension update -n ml
       - name: create-batch-deployment
         run: |
-          az ml ${{ inputs.endpoint_type }}-deployment create --name ${{ inputs.deployment_name }} --endpoint ${{ inputs.endpoint_name }} \
-          -f ${{ github.workspace }}/${{ inputs.endpoint_file }} --resource-group ${{ inputs.resource_group }} \
-          --workspace-name ${{ inputs.workspace_name }}
+          if az ml ${{ inputs.endpoint_type }}-deployment show --name ${{ inputs.deployment_name }} --endpoint-name ${{ inputs.endpoint_name }} \
+            --resource-group ${{ inputs.resource_group }} --workspace-name ${{ inputs.workspace_name }} &>/dev/null; then
+            az ml ${{ inputs.endpoint_type }}-deployment update --name ${{ inputs.deployment_name }} --endpoint-name ${{ inputs.endpoint_name }} \
+            -f ${{ github.workspace }}/${{ inputs.endpoint_file }} --resource-group ${{ inputs.resource_group }} \
+            --workspace-name ${{ inputs.workspace_name }}
+          else
+            az ml ${{ inputs.endpoint_type }}-deployment create --name ${{ inputs.deployment_name }} --endpoint ${{ inputs.endpoint_name }} \
+            -f ${{ github.workspace }}/${{ inputs.endpoint_file }} --resource-group ${{ inputs.resource_group }} \
+            --workspace-name ${{ inputs.workspace_name }}
+          fi
