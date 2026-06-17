@@ -47,5 +47,5 @@ jobs:
           # words. Convert any commas to spaces and leave UNQUOTED so the shell
           # word-splits "blue=90 green=10" into separate --traffic arguments.
           TRAFFIC="${{ inputs.traffic_allocation }}"
-          az ml online-endpoint update --name ${{ inputs.endpoint_name }} --traffic ${TRAFFIC//,/ } \
+          az ml online-endpoint update --name ${{ inputs.endpoint_name }} --traffic "${TRAFFIC//,/ }" \
           --resource-group ${{ inputs.resource_group }} --workspace-name ${{ inputs.workspace_name }}
