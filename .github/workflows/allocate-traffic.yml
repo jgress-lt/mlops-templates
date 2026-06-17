@@ -43,5 +43,9 @@ jobs:
         run: az extension update -n ml
       - name: allocate-traffic
         run: |
-          az ml online-endpoint update --name ${{ inputs.endpoint_name }} --traffic "${{ inputs.traffic_allocation }}" \
+          # Azure ML CLI expects space-separated key=value pairs as distinct shell
+          # words. Convert any commas to spaces and leave UNQUOTED so the shell
+          # word-splits "blue=90 green=10" into separate --traffic arguments.
+          TRAFFIC="${{ inputs.traffic_allocation }}"
+          az ml online-endpoint update --name ${{ inputs.endpoint_name }} --traffic ${TRAFFIC//,/ } \
           --resource-group ${{ inputs.resource_group }} --workspace-name ${{ inputs.workspace_name }}
