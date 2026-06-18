@@ -48,9 +48,12 @@ jobs:
         run: |
           if az ml ${{ inputs.endpoint_type }}-endpoint show --name ${{ inputs.endpoint_name }} \
             --resource-group ${{ inputs.resource_group }} --workspace-name ${{ inputs.workspace_name }} &>/dev/null; then
-            az ml ${{ inputs.endpoint_type }}-endpoint update --name ${{ inputs.endpoint_name }} \
-            -f ${{ github.workspace }}/${{ inputs.endpoint_file }} --resource-group ${{ inputs.resource_group }} \
-            --workspace-name ${{ inputs.workspace_name }}
+            # Endpoint already exists — do NOT re-apply the definition with `update -f`.
+            # The endpoint YAML has no `traffic:` field, so `update -f` would reset the
+            # live traffic allocation to 0/0, breaking blue/green canary deployments.
+            # Endpoint-level config (name/description/auth_mode) does not change between
+            # runs, so skipping the update is safe and preserves traffic.
+            echo "Endpoint ${{ inputs.endpoint_name }} already exists — skipping update to preserve traffic allocation."
           else
             az ml ${{ inputs.endpoint_type }}-endpoint create --name ${{ inputs.endpoint_name }} \
             -f ${{ github.workspace }}/${{ inputs.endpoint_file }} --resource-group ${{ inputs.resource_group }} \
